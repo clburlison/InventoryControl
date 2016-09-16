@@ -1,0 +1,144 @@
+#!/usr/bin/python
+"""
+Write a intro to what this thing does here.
+"""
+
+import os
+import csv
+import subprocess
+import plistlib
+import urllib2
+import xattr
+
+CSV_LOCATION = 'https://gist.github.com/clburlison/7ec0612cb4b3556317cc80b57bd35b90/raw/beca5a85b15c1c412d88fd5162561f06508b9aac/test.csv'
+CSV_CACHE = '/private/var/InventoryControl/inventory.csv'
+
+# If using Basic Authorization create your auth header via:
+#   python -c 'import base64; print "Basic %s" % base64.b64encode("username:password")'
+# Make sure and replace the "Basic STRINGVALUE".
+# If not using basic auth comment the next line out.
+# AUTH_HEADER = {"Authorization": "Basic ABBAABAABAABBAAB"}
+AUTH_HEADER = {}
+
+class FileHandler(object):
+    '''A class for downloading and handling the inventory file.'''
+
+    def download_file(self, url, additional_headers, method='HEAD'):
+        '''Download the csv file. This is done in two passes:
+        Pass one is a HEAD request to see if our cached csv file is out of date.
+        Pass two is a GET request to download the contents of the file.
+        Both of these requests will support additional headers.
+        '''
+
+        # If the file doesn't exist download via a get request
+        if not os.path.exists(CSV_CACHE):
+            method = 'GET'
+        # pass 1
+        request = urllib2.Request(url, headers=additional_headers)
+        request.get_method = lambda: method
+
+        # loop_handler = True
+        # while loop_handler:
+        try:
+            f = urllib2.urlopen(request)
+            f_headers = f.info().dict
+            contents = f.read()
+            code = f.getcode()
+            print f_headers.get('etag')
+            return (code, contents)
+        except urllib2.HTTPError as e:
+            return (e.code, e.read())
+        except urllib2.URLError as e:
+            return e
+
+
+
+
+        # if response_headers.get('etag'):
+        #     # store etag in extended attribute for future use
+        #     xattr.setxattr(CSV_CACHE, 'etag', header['etag'])
+
+
+    def getxattr(self, pathname, attr='etag'):
+        """Get a named xattr from a file. Return None if not present"""
+        if attr in xattr.listxattr(pathname):
+            return xattr.getxattr(pathname, attr)
+        else:
+            return None
+
+
+def get_hardware_info():
+    '''Uses system profiler to get hardware info for this machine.'''
+    cmd = ['/usr/sbin/system_profiler', 'SPHardwareDataType', '-xml']
+    proc = subprocess.Popen(cmd, shell=False, bufsize=-1,
+                            stdin=subprocess.PIPE,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    (output, unused_error) = proc.communicate()
+    try:
+        plist = plistlib.readPlistFromString(output)
+        # system_profiler xml is an array
+        sp_dict = plist[0]
+        items = sp_dict['_items']
+        sp_hardware_dict = items[0]
+        return sp_hardware_dict
+    except Exception:
+        return {}
+
+
+def get_serial_number():
+    '''Return only the serial number from system profiler.'''
+    hardware_info = get_hardware_info()
+    return hardware_info.get('serial_number', 'UNKNOWN')
+
+
+def control_inventory(serial_number):
+    '''write stuff here'''
+    csv_data = csv.DictReader(CSV, delimiter=',')
+    for row in csv_data:
+        serial = row[0]
+        computername = row[1]
+        text1 = row[2]
+        text2 = row[3]
+        text3 = row[4]
+        text4 = row[5]
+        if serial == self.serial_number:
+            set_names(computername)
+            set_ard_text(text1, 'Text1')
+            set_ard_text(text2, 'Text2')
+            set_ard_text(text3, 'Text3')
+            set_ard_text(text4, 'Text4')
+
+
+def set_names(computername):
+    '''Set all three Mac name types to the same value from the csv file.'''
+    name_fields = ['ComputerName', 'HostName', 'LocalHostName']
+    for item in name_fields:
+        cmd = ['/usr/sbin/scutil', '--set', item, computername]
+        proc = subprocess.Popen(cmd, shell=False, bufsize=-1,
+                                stdin=subprocess.PIPE,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        (output, unused_error) = proc.communicate()
+
+
+def set_ard_text(value, field):
+    '''Set values for ard text fields.'''
+    if field in ['Text1', 'Text2', 'Text3', 'Text4']:
+        cmd = ['/usr/bin/defaults', 'write',
+               '/Library/Preferences/com.apple.RemoteDesktop.plist',
+               field, '-string', value]
+        proc = subprocess.Popen(cmd, shell=False, bufsize=-1,
+                                stdin=subprocess.PIPE,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        (output, unused_error) = proc.communicate()
+    else:
+        print "'{0}' is an unsupported text field.".format(field)
+
+
+def main():
+    '''Main method.'''
+    # serial_number = get_serial_number()
+    # control_inventory(serial_number)
+    FileHandler().download_file(CSV_LOCATION, AUTH_HEADER)
+
+if __name__ == '__main__':
+    main()
