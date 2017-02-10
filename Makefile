@@ -1,7 +1,7 @@
 # Makefile for InventoryControl related tasks
 
 PKGTITLE="InventoryControl"
-PKGVERSION=1.0.0
+PKGVERSION=1.0.2
 PKGID=com.clburlison.InventoryControl
 
 #################################################

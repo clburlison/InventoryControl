@@ -116,13 +116,20 @@ def inventory_control():
     except(IOError) as msg:
         print('ManagedInstallReport.plist is unavailable')
 
-    # If the report is generated use it
-    manifest_name = report.get('ManifestName')
-    if manifest_name is None:
-        # The manifest name should be the serial number so use that as a bkup
-        manifest_name = get_mac_serial_number()
-    manifest_file = os.path.join(MANAGED_INSTALL_DIR, 'manifests',
-                                 manifest_name)
+    # If client_manifest.plist is on disk use that first!
+    client_manifest = os.path.join(MANAGED_INSTALL_DIR, 'manifests',
+                                   'client_manifest.plist')
+    if os.path.isfile(client_manifest):
+        manifest_file = client_manifest
+    else:
+        # If the report is generated use it
+        manifest_name = report.get('ManifestName')
+        if manifest_name is None:
+            # The manifest name should be the serial number
+            # so use that as a bkup if we can't obtain the ManifestName
+            manifest_name = get_mac_serial_number()
+        manifest_file = os.path.join(MANAGED_INSTALL_DIR, 'manifests',
+                                     manifest_name)
 
     # Read the client manifest file
     if os.path.isfile(manifest_file):
