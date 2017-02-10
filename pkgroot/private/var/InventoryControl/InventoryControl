@@ -1,144 +1,165 @@
 #!/usr/bin/python
 """
-Write a intro to what this thing does here.
+This script will make sure this Mac is named properly and that ARD field values
+are set properly. All data is pulled from the client munki manifest. Use
+https://github.com/clburlison/BananaEndocarp/ to create the initial manifest
+for each machine.
+
+Author: Clayton Burlison <https://clburlison.com>
+Last Modified: Feb. 10, 2017
 """
 
+from __future__ import print_function
 import os
-import csv
 import subprocess
 import plistlib
-import urllib2
-import xattr
+import sys
+import objc
+from Foundation import NSBundle
 
-CSV_LOCATION = 'https://gist.github.com/clburlison/7ec0612cb4b3556317cc80b57bd35b90/raw/beca5a85b15c1c412d88fd5162561f06508b9aac/test.csv'
-CSV_CACHE = '/private/var/InventoryControl/inventory.csv'
-
-# If using Basic Authorization create your auth header via:
-#   python -c 'import base64; print "Basic %s" % base64.b64encode("username:password")'
-# Make sure and replace the "Basic STRINGVALUE".
-# If not using basic auth comment the next line out.
-# AUTH_HEADER = {"Authorization": "Basic ABBAABAABAABBAAB"}
-AUTH_HEADER = {}
-
-class FileHandler(object):
-    '''A class for downloading and handling the inventory file.'''
-
-    def download_file(self, url, additional_headers, method='HEAD'):
-        '''Download the csv file. This is done in two passes:
-        Pass one is a HEAD request to see if our cached csv file is out of date.
-        Pass two is a GET request to download the contents of the file.
-        Both of these requests will support additional headers.
-        '''
-
-        # If the file doesn't exist download via a get request
-        if not os.path.exists(CSV_CACHE):
-            method = 'GET'
-        # pass 1
-        request = urllib2.Request(url, headers=additional_headers)
-        request.get_method = lambda: method
-
-        # loop_handler = True
-        # while loop_handler:
-        try:
-            f = urllib2.urlopen(request)
-            f_headers = f.info().dict
-            contents = f.read()
-            code = f.getcode()
-            print f_headers.get('etag')
-            return (code, contents)
-        except urllib2.HTTPError as e:
-            return (e.code, e.read())
-        except urllib2.URLError as e:
-            return e
+sys.path.append('/usr/local/munki')
+from munkilib import munkicommon
 
 
+def get_mac_serial_number():
+    '''Get the Mac's Serial Number'''
+    # Location of IOKit Bundle - Code from Mike Lynn's Gist
+    # https://gist.github.com/pudquick/c7dd1262bd81a32663f0
+    IOKit_bundle = NSBundle.bundleWithIdentifier_(
+        'com.apple.framework.IOKit')
+    functions = [("IOServiceGetMatchingService", b"II@"),
+                 ("IOServiceMatching", b"@*"),
+                 ("IORegistryEntryCreateCFProperty", b"@I@@I"), ]
+    IOKit = dict()
+    objc.loadBundleFunctions(IOKit_bundle, IOKit, functions)
+    serial_number = IOKit['IORegistryEntryCreateCFProperty'](
+        IOKit['IOServiceGetMatchingService'](
+            0, IOKit['IOServiceMatching'](
+                'IOPlatformExpertDevice')),
+        'IOPlatformSerialNumber', None, 0)
+    return serial_number
 
 
-        # if response_headers.get('etag'):
-        #     # store etag in extended attribute for future use
-        #     xattr.setxattr(CSV_CACHE, 'etag', header['etag'])
+def get_name():
+    """Return dictionary with all three Mac Names."""
+    data = {}
+    names = ['ComputerName', 'HostName', 'LocalHostName']
+    for n in names:
+        cmd = ['/usr/sbin/scutil', '--get', n]
+        proc = subprocess.Popen(cmd, shell=False, bufsize=-1,
+                                stdin=subprocess.PIPE,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        (out, unused_error) = proc.communicate()
+        data[n] = out.strip()
+
+    return data
 
 
-    def getxattr(self, pathname, attr='etag'):
-        """Get a named xattr from a file. Return None if not present"""
-        if attr in xattr.listxattr(pathname):
-            return xattr.getxattr(pathname, attr)
+def matcher(display_name, names):
+    """Returns True if the display_name matches all strings in the names list
+    else False"""
+    trigger = None
+    for name in names:
+        if name != display_name:
+            trigger = False
+            break
         else:
-            return None
-
-
-def get_hardware_info():
-    '''Uses system profiler to get hardware info for this machine.'''
-    cmd = ['/usr/sbin/system_profiler', 'SPHardwareDataType', '-xml']
-    proc = subprocess.Popen(cmd, shell=False, bufsize=-1,
-                            stdin=subprocess.PIPE,
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    (output, unused_error) = proc.communicate()
-    try:
-        plist = plistlib.readPlistFromString(output)
-        # system_profiler xml is an array
-        sp_dict = plist[0]
-        items = sp_dict['_items']
-        sp_hardware_dict = items[0]
-        return sp_hardware_dict
-    except Exception:
-        return {}
-
-
-def get_serial_number():
-    '''Return only the serial number from system profiler.'''
-    hardware_info = get_hardware_info()
-    return hardware_info.get('serial_number', 'UNKNOWN')
-
-
-def control_inventory(serial_number):
-    '''write stuff here'''
-    csv_data = csv.DictReader(CSV, delimiter=',')
-    for row in csv_data:
-        serial = row[0]
-        computername = row[1]
-        text1 = row[2]
-        text2 = row[3]
-        text3 = row[4]
-        text4 = row[5]
-        if serial == self.serial_number:
-            set_names(computername)
-            set_ard_text(text1, 'Text1')
-            set_ard_text(text2, 'Text2')
-            set_ard_text(text3, 'Text3')
-            set_ard_text(text4, 'Text4')
+            trigger = True
+    return trigger
 
 
 def set_names(computername):
-    '''Set all three Mac name types to the same value from the csv file.'''
+    """Set all three Mac name types to the same value from the csv file."""
     name_fields = ['ComputerName', 'HostName', 'LocalHostName']
     for item in name_fields:
         cmd = ['/usr/sbin/scutil', '--set', item, computername]
         proc = subprocess.Popen(cmd, shell=False, bufsize=-1,
                                 stdin=subprocess.PIPE,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        (output, unused_error) = proc.communicate()
+        (out, unused_error) = proc.communicate()
 
 
 def set_ard_text(value, field):
-    '''Set values for ard text fields.'''
+    """Set values for ard text fields."""
     if field in ['Text1', 'Text2', 'Text3', 'Text4']:
-        cmd = ['/usr/bin/defaults', 'write',
-               '/Library/Preferences/com.apple.RemoteDesktop.plist',
-               field, '-string', value]
+        if value in [None, '']:
+            cmd = ['/usr/bin/defaults', 'delete',
+                   '/Library/Preferences/com.apple.RemoteDesktop.plist', field]
+        else:
+            cmd = ['/usr/bin/defaults', 'write',
+                   '/Library/Preferences/com.apple.RemoteDesktop.plist',
+                   field, '-string', value]
         proc = subprocess.Popen(cmd, shell=False, bufsize=-1,
                                 stdin=subprocess.PIPE,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        (output, unused_error) = proc.communicate()
+        (out, unused_error) = proc.communicate()
     else:
-        print "'{0}' is an unsupported text field.".format(field)
+        print("'{0}' is an unsupported text field.".format(field))
+
+
+def inventory_control():
+    """
+    Read the client ManagedInstallReport.plist file to retreive the
+    ManifestName in usage. If that doesn't exist it is likely because a munki
+    run is active. As a fall back the client serial number will be used as
+    the manifest name. The `asset`, `display_name`, and `user` keys are
+    pulled from that plist and used to set values on the client computer.
+    """
+    # Checks munki preferences to see where the install directory is set to.
+    MANAGED_INSTALL_DIR = munkicommon.pref('ManagedInstallDir')
+    # Read the ManagedInstallReport.plist to get the client manifest
+    report = {}
+    report_path = os.path.join(MANAGED_INSTALL_DIR,
+                               'ManagedInstallReport.plist')
+    try:
+        report = plistlib.readPlist(report_path)
+    except(IOError) as msg:
+        print('ManagedInstallReport.plist is unavailable')
+
+    # If the report is generated use it
+    manifest_name = report.get('ManifestName')
+    if manifest_name is None:
+        # The manifest name should be the serial number so use that as a bkup
+        manifest_name = get_mac_serial_number()
+    manifest_file = os.path.join(MANAGED_INSTALL_DIR, 'manifests',
+                                 manifest_name)
+
+    # Read the client manifest file
+    if os.path.isfile(manifest_file):
+        try:
+            manifest = plistlib.readPlist(manifest_file)
+        except Exception, message:
+            raise Exception("Error reading manifest: {}".format(message))
+    else:
+        raise Exception("Mainfest does not exist!")
+
+    # Read Birdville ISD important key values
+    asset = manifest.get('asset', '')
+    display_name = manifest.get('display_name', '')
+    user = manifest.get('user', '')
+
+    # Rename the mac if it doesn't match the manifest display_name
+    if display_name not in [None, '']:
+        rename = matcher(display_name, get_name().values())
+        if not rename:
+            print("Renaming your computer")
+            set_names(display_name)
+
+    # Force set ARD values on every run
+    set_ard_text(user, 'Text1')
+    set_ard_text(asset, 'Text2')
+    set_ard_text('', 'Text3')
+    set_ard_text('', 'Text4')
 
 
 def main():
-    '''Main method.'''
-    # serial_number = get_serial_number()
-    # control_inventory(serial_number)
-    FileHandler().download_file(CSV_LOCATION, AUTH_HEADER)
+    """Main method"""
+    if not os.geteuid() == 0:
+        sys.stderr.write("You must run this as root!")
+        exit(1)
+
+    inventory_control()
+
 
 if __name__ == '__main__':
     main()

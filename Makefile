@@ -2,12 +2,12 @@
 
 PKGTITLE="InventoryControl"
 PKGVERSION=1.0.0
-PKGID=com.github.rodchristiansen.InventoryControl
+PKGID=com.clburlison.InventoryControl
 
 #################################################
 
 ##Help - Show this help menu
-help: 
+help:
 	@fgrep -h "##" $(MAKEFILE_LIST) | fgrep -v fgrep | sed -e 's/\\$$//' | sed -e 's/##//'
 
 ##  clean - Clean up temporary working directories
